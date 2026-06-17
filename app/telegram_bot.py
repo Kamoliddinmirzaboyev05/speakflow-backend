@@ -407,7 +407,12 @@ async def new_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return CHOOSE_PRACTICE
 
 
-async def main():
+def build_application():
+    """Build and configure the Telegram Application (handlers attached).
+
+    Returns the ready-to-run Application without starting polling, so it can
+    be driven either standalone (main()) or embedded in the FastAPI process.
+    """
     if not settings.TELEGRAM_BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set!")
 
@@ -454,19 +459,38 @@ async def main():
     )
     
     application.add_handler(conv_handler)
-    
+
+    return application
+
+
+async def start_polling(application):
+    """Initialize + start polling on an already-built Application.
+
+    Used both by standalone main() and by the FastAPI lifespan hook so the
+    bot runs inside the same process/event loop as the web server.
+    """
     print("✅ Telegram bot started!")
     print("⏳ Waiting for messages...")
-    
-    # Run the bot using the proper async method
+
     await application.initialize()
-    
-    # First, drop all pending updates to avoid conflicts
+    # Drop pending updates and any leftover webhook to avoid getUpdates conflicts.
     print("Dropping pending updates...")
     await application.bot.delete_webhook(drop_pending_updates=True)
-    
+
     await application.start()
     await application.updater.start_polling()
+
+
+async def stop_polling(application):
+    """Gracefully stop a polling Application."""
+    await application.updater.stop()
+    await application.stop()
+    await application.shutdown()
+
+
+async def main():
+    application = build_application()
+    await start_polling(application)
 
     # Keep the bot running until interrupted
     try:
@@ -475,9 +499,7 @@ async def main():
     except asyncio.CancelledError:
         pass
     finally:
-        await application.updater.stop()
-        await application.stop()
-        await application.shutdown()
+        await stop_polling(application)
 
 
 if __name__ == "__main__":
