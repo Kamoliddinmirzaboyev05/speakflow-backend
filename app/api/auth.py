@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl
 from app.core.database import get_db
 from app.core.config import settings
 from app.models import TelegramUser, Admin
-from app.api.admin import verify_password, get_password_hash, pwd_context
+from app.api.admin import verify_password, get_password_hash
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
