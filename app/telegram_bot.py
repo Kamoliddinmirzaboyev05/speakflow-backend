@@ -281,21 +281,38 @@ async def choose_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     practice_mode = text.lower().replace(" ", "")
     context.user_data['practice_mode'] = practice_mode
+    return await send_question(update, context, _part_number(practice_mode))
 
-    # Pull an active question for this part from the DB (admin-managed),
-    # falling back to the built-in bank when the table has none.
+
+async def send_question(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        part_number: int, intro: str = "Okay! Here's your question:") -> int:
+    """Pick an active question for the part and ask the user to answer by voice.
+
+    Pulls an admin-managed question from the DB (falls back to the built-in
+    bank when the table has none). While a question is open the keyboard offers
+    `Skip` (get a different question) and `Back` (return to the part menu).
+    """
     with get_db_session() as db:
-        question = pick_question(db, _part_number(practice_mode))
+        question = pick_question(db, part_number)
     context.user_data['current_question'] = question
-    
+
     keyboard = [[KeyboardButton("Skip")], [KeyboardButton("Back")]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-    
+
     await update.message.reply_text(
-        f"Okay! Here's your question:\n\n🎤 {question}\n\nPlease send a voice message with your answer! 🎧",
-        reply_markup=reply_markup
+        f"{intro}\n\n🎤 {question}\n\nPlease send a voice message with your answer! 🎧",
+        reply_markup=reply_markup,
     )
     return PRACTICING
+
+
+async def next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """`Next`/`Skip` — serve another question for the part already in progress."""
+    practice_mode = context.user_data.get('practice_mode', 'part1')
+    return await send_question(
+        update, context, _part_number(practice_mode),
+        intro="Here's your next question:",
+    )
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -367,15 +384,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             feedback += f"\n\n🎯 Mini mashq:\n{analysis_data['mini_exercise']}"
             feedback += f"\n\n💪 Keyingi vazifa:\n{analysis_data['next_task']}\n"
             
-            extra = [[KeyboardButton("New Practice"), KeyboardButton("Skip")]]
+            # After feedback: Next (another question, same part) / Back (menu).
+            nav_row = [KeyboardButton("Next"), KeyboardButton("Back")]
             if get_web_app_url():
-                reply_markup = build_dashboard_keyboard(extra_rows=extra)
+                reply_markup = build_dashboard_keyboard(extra_rows=[nav_row])
             else:
-                keyboard = extra
-                reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-            
+                reply_markup = ReplyKeyboardMarkup([nav_row], resize_keyboard=True, one_time_keyboard=True)
+
             await update.message.reply_text(feedback, reply_markup=reply_markup)
-            return CHOOSE_PRACTICE
+            return PRACTICING
             
         except Exception as e:
             import traceback
@@ -451,8 +468,9 @@ def build_application():
             ],
             PRACTICING: [
                 MessageHandler(filters.VOICE, handle_voice),
-                MessageHandler(filters.Regex('^(Skip|Back)$') & ~filters.COMMAND, choose_practice),
-                MessageHandler(filters.Regex('^New Practice$') & ~filters.COMMAND, new_practice)
+                MessageHandler(filters.Regex('^(Next|Skip)$') & ~filters.COMMAND, next_question),
+                MessageHandler(filters.Regex('^Back$') & ~filters.COMMAND, new_practice),
+                MessageHandler(filters.Regex('^New Practice$') & ~filters.COMMAND, new_practice),
             ]
         },
         fallbacks=[CommandHandler('cancel', cancel), CommandHandler('start', start), CommandHandler('reset', reset)]

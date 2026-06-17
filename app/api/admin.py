@@ -368,7 +368,7 @@ def create_speaking_question(
     db: Session = Depends(get_db),
     current_admin: Admin = Depends(get_current_admin)
 ):
-    db_question = SpeakingQuestion(part=question.part, question=question.question)
+    db_question = SpeakingQuestion(part=question.part, question=question.question, is_active=True)
     db.add(db_question)
     db.commit()
     db.refresh(db_question)
