@@ -24,6 +24,43 @@ finally:
     _db.close()
 
 
+def seed_admin():
+    """Ensure an admin account exists, created from env vars.
+
+    Render's free tier uses ephemeral SQLite (wiped on every restart/redeploy),
+    so a manually-created admin would vanish. Re-seeding from ADMIN_EMAIL /
+    ADMIN_PASSWORD on each boot keeps the admin panel login working.
+    """
+    email = os.getenv("ADMIN_EMAIL")
+    password = os.getenv("ADMIN_PASSWORD")
+    if not email or not password:
+        logger.info("ADMIN_EMAIL/ADMIN_PASSWORD not set; skipping admin seed.")
+        return
+    from app.models import Admin
+    from app.api.admin import get_password_hash
+
+    db = SessionLocal()
+    try:
+        existing = db.query(Admin).filter(Admin.email == email).first()
+        if existing:
+            # Keep password in sync with the env var on every boot.
+            existing.hashed_password = get_password_hash(password)
+            db.commit()
+            logger.info("Admin '%s' password synced from env.", email)
+        else:
+            db.add(Admin(email=email, hashed_password=get_password_hash(password)))
+            db.commit()
+            logger.info("Admin '%s' seeded from env.", email)
+    except Exception:
+        logger.exception("Failed to seed admin account.")
+        db.rollback()
+    finally:
+        db.close()
+
+
+seed_admin()
+
+
 # Run the Telegram bot in the same process as the API when RUN_BOT != "false".
 # This lets both share a single Render free web service (the API binds $PORT to
 # satisfy Render's HTTP health check; the bot long-polls as a background task).
