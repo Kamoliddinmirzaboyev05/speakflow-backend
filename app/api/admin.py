@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from app.core.database import get_db
 from app.core.config import settings
 from app.models import TelegramUser, PracticeSession, AnalysisResult, Admin, SpeakingQuestion
@@ -32,7 +32,6 @@ def _compute_streak(session_dates: list) -> int:
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 # Password hashing and JWT
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/admin/login")
 
 # JWT helper functions
@@ -47,10 +46,17 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 def verify_password(plain_password: str, hashed_password: str):
-    return pwd_context.verify(plain_password, hashed_password)
+    # bcrypt only considers the first 72 bytes; truncate to match hashing.
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8")[:72],
+        hashed_password.encode("utf-8"),
+    )
 
 def get_password_hash(password: str):
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(
+        password.encode("utf-8")[:72],
+        bcrypt.gensalt(),
+    ).decode("utf-8")
 
 def get_admin(db: Session, email: str):
     return db.query(Admin).filter(Admin.email == email).first()
